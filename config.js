@@ -19,7 +19,7 @@ window.SITE = {
   lenker: {
     youtube: "",     // tomt = lages automatisk fra handle over
     tiktok: "",      // f.eks. "https://www.tiktok.com/@gardsgutta"
-    discord: "",     // f.eks. "https://discord.gg/abc123"
+    discord: "https://discord.gg/yTBrmXDTdr",
     instagram: "",
     twitch: ""
   },

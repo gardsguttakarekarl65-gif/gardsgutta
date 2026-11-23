@@ -98,6 +98,56 @@ async function viaApi(yt, key) {
   return { channelId: ch.id, videos, stats: { subs: +s.subscriberCount || 0, views: +s.viewCount || 0, videos: +s.videoCount || videos.length } };
 }
 
+// Henter hele opplastingslista fra YouTube-siden (uten API-nøkkel). Beste forsøk – feiler stille.
+const ytData = html => { const m = html.match(/ytInitialData\s*=\s*(\{[\s\S]+?\});\s*<\/script>/); return m ? JSON.parse(m[1]) : null; };
+const UNIT = { second: 1, sek: 1, minute: 60, min: 60, hour: 3600, 't.': 3600, time: 3600, day: 86400, 'd.': 86400, dag: 86400, week: 604800, 'u.': 604800, uke: 604800, month: 2592000, 'md.': 2592000, 'måned': 2592000, year: 31536000, 'år': 31536000 };
+function agoToIso(txt) {
+  const m = String(txt || '').toLowerCase().match(/(\d+)\s*(second|sek|minute|min|hour|time|t\.|day|dag|d\.|week|uke|u\.|month|måned|md\.|year|år)/);
+  if (!m) return null;
+  return new Date(Date.now() - (+m[1]) * UNIT[m[2]] * 1000).toISOString();
+}
+function lockups(obj, out = []) {
+  if (!obj || typeof obj !== 'object') return out;
+  if (obj.lockupViewModel) { out.push(obj.lockupViewModel); return out; }
+  for (const k in obj) lockups(obj[k], out);
+  return out;
+}
+function findAll(obj, key, out = []) {
+  if (!obj || typeof obj !== 'object') return out;
+  if (obj[key] !== undefined) out.push(obj[key]);
+  for (const k in obj) findAll(obj[k], key, out);
+  return out;
+}
+function fromLockup(l) {
+  if (l.contentType && l.contentType !== 'LOCKUP_CONTENT_TYPE_VIDEO') return null;
+  const md = l.metadata?.lockupMetadataViewModel;
+  const badge = findAll(l.contentImage, 'thumbnailBadgeViewModel').map(b => b.text).find(t => /^\d+(:\d+)+$/.test(t || ''));
+  if (!badge) return null; // direktesendinger som ikke er ferdige, premierer o.l.
+  const parts = (md?.metadata?.contentMetadataViewModel?.metadataRows || []).flatMap(r => (r.metadataParts || []).map(p => p.text?.content || ''));
+  const when = parts.find(p => /ago|siden/i.test(p));
+  const views = parts.find(p => p !== when && (/views?|visning/i.test(p) || /^[\d.,\s]+[KkMmBb]?$/.test(p.trim())));
+  const duration = badge.split(':').reduce((a, n) => a * 60 + (+n), 0);
+  return { id: l.contentId, title: md?.title?.content || '', duration, views: /no views|ingen/i.test(views || '') ? 0 : num(views), published: agoToIso(when) || new Date(0).toISOString(), approx: true, short: duration <= 60 };
+}
+async function scrapeUploads(channelId) {
+  const H = { 'accept-language': 'en-US,en;q=0.8', cookie: 'CONSENT=YES+cb; SOCS=CAI' };
+  const html = await (await get(`https://www.youtube.com/playlist?list=UU${channelId.slice(2)}`, { headers: H })).text();
+  const data = ytData(html);
+  if (!data) throw new Error('fant ikke videolista på YouTube-siden');
+  let items = lockups(data);
+  const ver = html.match(/"INNERTUBE_CLIENT_VERSION":"([^"]+)"/)?.[1] || '2.20250101.00.00';
+  let token = findAll(data, 'continuationCommand')[0]?.token;
+  for (let page = 0; token && page < 20; page++) {
+    const r = await (await get('https://www.youtube.com/youtubei/v1/browse?prettyPrint=false', { method: 'POST', headers: { ...H, 'content-type': 'application/json' }, body: JSON.stringify({ context: { client: { clientName: 'WEB', clientVersion: ver, hl: 'en', gl: 'US' } }, continuation: token }) }, 2)).json();
+    const more = lockups(r);
+    if (!more.length) break;
+    items = items.concat(more);
+    token = findAll(r, 'continuationCommand')[0]?.token;
+  }
+  const seen = new Set();
+  return items.map(fromLockup).filter(v => v && /^[\w-]{11}$/.test(v.id) && !seen.has(v.id) && seen.add(v.id));
+}
+
 async function viaRss(yt, prev) {
   let id = /^UC[\w-]{22}$/.test(yt.channelId || '') ? yt.channelId : null;
   let html = '';
@@ -109,16 +159,27 @@ async function viaRss(yt, prev) {
     const vid = tag(e, 'yt:videoId');
     return { id: vid, title: tag(e, 'title'), published: tag(e, 'published'), short: /\/shorts\//.test(attr(e, 'link', 'href')), views: +attr(e, 'media:statistics', 'views') || 0, desc: tag(e, 'media:description').slice(0, 600) };
   }).filter(v => /^[\w-]{11}$/.test(v.id));
-  // husk alle videoer vi har sett før (RSS viser bare de 15 nyeste)
+  // husk alle videoer vi har sett før (RSS viser bare de 15 nyeste) og hent resten fra opplastingslista
   const byId = new Map((prev?.videos || []).map(v => [v.id, v]));
-  for (const v of fresh) byId.set(v.id, { ...byId.get(v.id), ...v });
+  let all = null;
+  try { all = await scrapeUploads(id); log(`Opplastingslista: ${all.length} videoer`); } catch (e) { warn(`Kunne ikke lese hele videolista: ${e.message}`); }
+  if (all?.length) {
+    const keep = new Set([...all.map(v => v.id), ...fresh.map(v => v.id)]);
+    for (const k of [...byId.keys()]) if (!keep.has(k)) byId.delete(k); // slettede videoer forsvinner
+    for (const v of all) { const old = byId.get(v.id); byId.set(v.id, old ? { ...old, views: v.views || old.views, duration: v.duration || old.duration, title: v.title || old.title } : v); }
+  }
+  for (const v of fresh) { const old = byId.get(v.id); byId.set(v.id, { ...old, ...v, approx: false, duration: old?.duration || v.duration }); }
   const videos = [...byId.values()];
+  // korte videoer (1–3 min) kan være Shorts: sjekk mot youtube.com/shorts/ID én gang
+  for (const v of videos.filter(v => v.approx && v.duration > 60 && v.duration <= 180 && v.shortChecked !== true).slice(0, 40)) {
+    try { const r = await get(`https://www.youtube.com/shorts/${v.id}`, { redirect: 'manual' }, 1); v.short = r.status === 200; v.shortChecked = true; } catch {}
+  }
   const stats = { ...(prev?.stats || {}) };
   const subs = html.match(/"(?:simpleText|content|label)":"([\d.,]+\s*[KMB]?)\s+subscribers?"/i);
   if (subs) stats.subs = num(subs[1]);
   const vc = html.match(/"(?:simpleText|content|label)":"([\d.,]+\s*[KMB]?)\s+videos?"/i);
-  stats.videos = Math.max(vc ? num(vc[1]) : 0, videos.length);
-  stats.views = Math.max(stats.views || 0, videos.reduce((s, v) => s + (v.views || 0), 0));
+  stats.videos = videos.length || (vc ? num(vc[1]) : 0);
+  if (all?.length) stats.views = videos.reduce((s, v) => s + (v.views || 0), 0); else delete stats.views;
   return { channelId: id, videos, stats };
 }
 

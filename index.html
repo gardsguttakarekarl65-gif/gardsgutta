@@ -491,6 +491,7 @@ const odo=(el,val)=>{const s=nf.format(Math.max(0,Math.round(val)));if(el.datase
 const ST={...(F?.stats||{})};
 const showStats=()=>{odo($('#oSubs'),ST.subs||0);odo($('#oVids'),ST.videos||F?.videos?.length||0);odo($('#oViews'),ST.views||0)};
 if(!ST.subs&&!F?.videos?.length)$('.sg').classList.add('none');
+if(!ST.views)$('#oViews').closest('.stat').hidden=true;
 const so=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting)){showStats();so.disconnect()}});so.observe($('.stats'));
 const key=S.youtube?.apiKey,cid=F?.channelId||S.youtube?.channelId;
 if(key&&cid){const live=()=>{if(document.hidden)return;fetch(`https://www.googleapis.com/youtube/v3/channels?part=statistics&id=${encodeURIComponent(cid)}&key=${encodeURIComponent(key)}`).then(r=>r.ok?r.json():null).then(j=>{const s=j?.items?.[0]?.statistics;if(!s)return;ST.subs=+s.subscriberCount||ST.subs;ST.views=+s.viewCount||ST.views;ST.videos=+s.videoCount||ST.videos;if($('#oSubs').dataset.v)showStats()}).catch(()=>{})};live();setInterval(live,90000)}

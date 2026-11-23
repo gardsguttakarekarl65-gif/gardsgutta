@@ -259,5 +259,15 @@ catch (e) {
   }))).filter(Boolean);
 }
 
+// Discord: navn og hvor mange som er pålogget (fra invitasjonslenken)
+const inv = (SITE.lenker?.discord || '').match(/discord(?:\.gg|(?:app)?\.com\/invite)\/([\w-]+)/i);
+if (inv) {
+  try {
+    const j = await (await get(`https://discord.com/api/v10/invites/${inv[1]}?with_counts=true`, {}, 2)).json();
+    feed.discord = { name: j.guild?.name || '', members: j.approximate_member_count ?? j.profile?.member_count ?? 0, online: j.approximate_presence_count ?? j.profile?.online_count ?? 0 };
+    log(`Discord: ${feed.discord.name} – ${feed.discord.members} medlemmer, ${feed.discord.online} pålogget`);
+  } catch (e) { warn(`Discord: ${e.message}`); if (prev?.discord) feed.discord = prev.discord; }
+}
+
 await fs.writeFile(path.join(OUT, 'data', 'feed.js'), `// Lages automatisk av oppdater.mjs – ikke rediger.\nwindow.FEED = ${JSON.stringify(feed).replace(/</g, '\\u003c')};\n`);
 log(`Ferdig: ${feed.videos.length} videoer, ${feed.posts.length} innlegg → _site/`);

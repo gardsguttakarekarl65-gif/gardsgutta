@@ -127,7 +127,8 @@ function fromLockup(l) {
   const when = parts.find(p => /ago|siden/i.test(p));
   const views = parts.find(p => p !== when && (/views?|visning/i.test(p) || /^[\d.,\s]+[KkMmBb]?$/.test(p.trim())));
   const duration = badge.split(':').reduce((a, n) => a * 60 + (+n), 0);
-  return { id: l.contentId, title: md?.title?.content || '', duration, views: /no views|ingen/i.test(views || '') ? 0 : num(views), published: agoToIso(when) || new Date(0).toISOString(), approx: true, short: duration <= 60 };
+  const anyWhen = findAll(l, 'content').find(t => typeof t === 'string' && /ago|siden/i.test(t));
+  return { id: l.contentId, title: md?.title?.content || '', duration, views: /no views|ingen/i.test(views || '') ? 0 : num(views), published: agoToIso(when) || agoToIso(anyWhen), approx: true, short: duration <= 60, rawParts: parts };
 }
 async function scrapeUploads(channelId) {
   const H = { 'accept-language': 'en-US,en;q=0.8', cookie: 'CONSENT=YES+cb; SOCS=CAI' };
@@ -145,7 +146,13 @@ async function scrapeUploads(channelId) {
     token = findAll(r, 'continuationCommand')[0]?.token;
   }
   const seen = new Set();
-  return items.map(fromLockup).filter(v => v && /^[\w-]{11}$/.test(v.id) && !seen.has(v.id) && seen.add(v.id));
+  const list = items.map(fromLockup).filter(v => v && /^[\w-]{11}$/.test(v.id) && !seen.has(v.id) && seen.add(v.id));
+  const miss = list.filter(v => !v.published);
+  if (miss.length) log(`Uten dato: ${miss.length}. Eksempel: ${JSON.stringify(miss[0].rawParts)}`);
+  // lista er sortert nyest først: videoer uten dato får tiden til videoen foran seg
+  let last = Date.now();
+  for (const v of list) { if (v.published) last = new Date(v.published).getTime(); else { last -= 60000; v.published = new Date(last).toISOString(); v.noDate = true; } delete v.rawParts; }
+  return list;
 }
 
 async function viaRss(yt, prev) {
@@ -166,9 +173,9 @@ async function viaRss(yt, prev) {
   if (all?.length) {
     const keep = new Set([...all.map(v => v.id), ...fresh.map(v => v.id)]);
     for (const k of [...byId.keys()]) if (!keep.has(k)) byId.delete(k); // slettede videoer forsvinner
-    for (const v of all) { const old = byId.get(v.id); byId.set(v.id, old ? { ...old, views: v.views || old.views, duration: v.duration || old.duration, title: v.title || old.title } : v); }
+    for (const v of all) { const old = byId.get(v.id); byId.set(v.id, old ? { ...old, views: v.views || old.views, duration: v.duration || old.duration, title: v.title || old.title, ...(old.approx !== false ? { published: v.published, noDate: v.noDate } : {}) } : v); }
   }
-  for (const v of fresh) { const old = byId.get(v.id); byId.set(v.id, { ...old, ...v, approx: false, duration: old?.duration || v.duration }); }
+  for (const v of fresh) { const old = byId.get(v.id); byId.set(v.id, { ...old, ...v, approx: false, noDate: false, duration: old?.duration || v.duration }); }
   const videos = [...byId.values()];
   // korte videoer (1–3 min) kan være Shorts: sjekk mot youtube.com/shorts/ID én gang
   for (const v of videos.filter(v => v.approx && v.duration > 60 && v.duration <= 180 && v.shortChecked !== true).slice(0, 40)) {

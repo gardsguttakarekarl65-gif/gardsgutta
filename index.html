@@ -559,6 +559,7 @@ const SOC=[['youtube','YouTube','Abonner'],['tiktok','TikTok','Følg oss'],['dis
 const handleOf=u=>{try{const x=new URL(u);const p=x.pathname.split('/').filter(Boolean);const h=p.find(s=>s.startsWith('@'));return decodeURIComponent(h||(x.hostname.includes('discord')?'discord.gg/'+(p.at(-1)||''):p.at(-1)||x.hostname))}catch{return''}};
 $('#soc').innerHTML=SOC.filter(([k],i)=>L[k]||i<3).map(([k,n,cta],i)=>{const u=k==='youtube'&&subUrl?subUrl:L[k];const inner=`<span class="gl"><svg viewBox="0 0 24 24">${GL[k]}</svg></span><b>${n}</b><small id="s-${k}">${u?esc(handleOf(L[k])):'Lenke kommer snart'}</small><span class="go">${u?cta:'Kommer snart'}${u?'<svg><use href="#i-arrow"/></svg>':''}</span>`;
  return u?`<a class="st rv" style="--rd:${i*.08}s" href="${esc(u)}" target="_blank" rel="noopener">${inner}</a>`:`<div class="st off rv" style="--rd:${i*.08}s">${inner}</div>`}).join('');
+if(F?.discord?.name){const el=$('#s-discord');if(el){el.textContent=F.discord.name+(F.discord.members>=25?` · ${nf.format(F.discord.members)} medlemmer`:'');if(F.discord.online>0)el.insertAdjacentHTML('beforeend',`<br><span class="online">${nf.format(F.discord.online)} pålogget nå</span>`)}}
 if(S.discordServerId&&/^\d+$/.test(S.discordServerId)){fetch(`https://discord.com/api/guilds/${S.discordServerId}/widget.json`).then(r=>r.ok?r.json():null).then(j=>{if(j&&j.presence_count!=null){const el=$('#s-discord');if(el)el.innerHTML=`<span class="online">${nf.format(j.presence_count)} pålogget nå</span>`}}).catch(()=>{})}
 
 /* ---------- scenen ---------- */

@@ -1,0 +1,19 @@
+# Når du legger ut, endrer eller skjuler et innlegg (et issue med merkelappen «innlegg»),
+# startes «Oppdater nettsiden» så innlegget dukker opp på siden etter ca. ett minutt.
+name: Nytt innlegg
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled, deleted]
+
+permissions:
+  actions: write
+
+jobs:
+  start:
+    if: github.event.issue.user.login == github.repository_owner
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh workflow run nettside.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.event.repository.default_branch }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -14,6 +14,7 @@ permissions:
   contents: read
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: pages
@@ -37,6 +38,11 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site
+      - name: Hold den automatiske oppdateringen i gang
+        if: github.event_name == 'schedule'
+        run: if [ "$(date -u +%H)" = "03" ]; then gh api -X PUT "repos/$GITHUB_REPOSITORY/actions/workflows/nettside.yml/enable" || true; fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publiser:
     needs: bygg

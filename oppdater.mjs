@@ -100,11 +100,14 @@ async function viaApi(yt, key) {
 
 // Henter hele opplastingslista fra YouTube-siden (uten API-nøkkel). Beste forsøk – feiler stille.
 const ytData = html => { const m = html.match(/ytInitialData\s*=\s*(\{[\s\S]+?\});\s*<\/script>/); return m ? JSON.parse(m[1]) : null; };
-const UNIT = { second: 1, sek: 1, minute: 60, min: 60, hour: 3600, 't.': 3600, time: 3600, day: 86400, 'd.': 86400, dag: 86400, week: 604800, 'u.': 604800, uke: 604800, month: 2592000, 'md.': 2592000, 'måned': 2592000, year: 31536000, 'år': 31536000 };
 function agoToIso(txt) {
-  const m = String(txt || '').toLowerCase().match(/(\d+)\s*(second|sek|minute|min|hour|time|t\.|day|dag|d\.|week|uke|u\.|month|måned|md\.|year|år)/);
+  // «3 days ago», «1d ago», «2mo ago», «for 1 md. siden» …
+  const m = String(txt || '').toLowerCase().match(/(\d+)\s*([a-zåæø.]+)/);
   if (!m) return null;
-  return new Date(Date.now() - (+m[1]) * UNIT[m[2]] * 1000).toISOString();
+  const u = m[2];
+  const sec = /^(y|yr|year|år)/.test(u) ? 31536000 : /^(mo|month|md|måned|mnd)/.test(u) ? 2592000 : /^(w|wk|week|u\.|uke)/.test(u) ? 604800
+    : /^(d|dag)/.test(u) ? 86400 : /^(h|hr|hour|t\.|time)/.test(u) ? 3600 : /^(m|min)/.test(u) ? 60 : /^(s|sek)/.test(u) ? 1 : 0;
+  return sec ? new Date(Date.now() - (+m[1]) * sec * 1000).toISOString() : null;
 }
 function lockups(obj, out = []) {
   if (!obj || typeof obj !== 'object') return out;
